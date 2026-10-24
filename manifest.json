@@ -1,13 +1,13 @@
 
 {
   "name": "Strumyk Native Bridge",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "scrapers": [
     {
       "id": "strumyk-native-bridge",
-      "name": "Strumyk Native DEBUG 0.2.2",
-      "description": "Diagnostyka widoczna w nazwach źródeł Nuvio.",
-      "version": "0.2.2",
+      "name": "Strumyk HTML Inspector 0.2.3",
+      "description": "Diagnostyka HTML odtwarzaczy Strumyk w Nuvio na iPadzie. Skrypty, iframe, video, source i jawne adresy wideo.",
+      "version": "0.2.3",
       "author": "Strumyk Native",
       "filename": "providers/strumyk.js",
       "supportedTypes": ["movie"],
@@ -17,4 +17,3 @@
     }
   ]
 }
-
