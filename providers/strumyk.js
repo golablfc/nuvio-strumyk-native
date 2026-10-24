@@ -1,15 +1,23 @@
 
 /*
- * Strumyk Native Resolver v0.2.0
- * Nuvio Android TV / Google TV
+ * STRUMYK NATIVE DEBUG 0.2.1
+ * Nuvio iPad / iOS
  *
- * Katalog: Cloudflare Worker
- * Resolver: lokalny JavaScript Nuvio
+ * Testujemy:
+ * 1. Wywolanie getStreams
+ * 2. Komunikacje z Cloudflare
+ * 3. Liste zrodel wydarzenia
+ * 4. Dostepnosc HTML odtwarzacza
+ * 5. Jawne adresy HLS / MP4 / DASH
  *
- * Nie obchodzi HTTP 403, Cloudflare ani DRM.
+ * Pozycje DEBUG to nie sa filmy.
+ * Ich URL wskazuje JSON, nie transmisje.
+ *
+ * Bez cookies, tokenow, referer spoofingu,
+ * proxy i obchodzenia zabezpieczen.
  */
 
-var VERSION = "0.2.0";
+var VERSION = "0.2.1";
 
 var WORKER =
   "https://strumyk-stremio-addon.karotu1994.workers.dev";
@@ -17,51 +25,21 @@ var WORKER =
 var TEST_HLS =
   "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
 
-var MAX_PAGES = 4;
-var MAX_HTML = 400000;
-var TIMEOUT = 6500;
+var MAX_PAGES = 3;
+var MAX_HTML = 350000;
 
 function log(message) {
   try {
     console.log(
-      "[StrumykResolver " + VERSION + "] " +
-      String(message)
+      "[STRUMYK-DEBUG] " + String(message)
     );
   } catch (e) {}
 }
 
-function errorText(error) {
+function errText(e) {
   return String(
-    error && error.message
-      ? error.message
-      : error
-  ).slice(0, 200);
-}
-
-function isPrivateHost(host) {
-  host = host.toLowerCase();
-
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    host.endsWith(".arpa") ||
-    host === "[::1]"
-  ) {
-    return true;
-  }
-
-  // Nie wykonujemy żądań do adresów IP.
-  if (/^[0-9.]+$/.test(host)) {
-    return true;
-  }
-
-  if (host.indexOf(":") !== -1) {
-    return true;
-  }
-
-  return false;
+    e && e.message ? e.message : e
+  ).slice(0, 100);
 }
 
 function safeUrl(raw, base) {
@@ -69,29 +47,30 @@ function safeUrl(raw, base) {
     typeof raw !== "string" ||
     !raw ||
     raw.length > 4096
-  ) {
-    return null;
-  }
+  ) return null;
 
   try {
-    var url = base
-      ? new URL(raw, base)
-      : new URL(raw);
+    var u = new URL(raw, base);
 
     if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      (url.port && url.port !== "443")
-    ) {
-      return null;
-    }
+      u.protocol !== "https:" ||
+      u.username ||
+      u.password ||
+      (u.port && u.port !== "443")
+    ) return null;
 
-    if (isPrivateHost(url.hostname)) {
-      return null;
-    }
+    var host = u.hostname.toLowerCase();
 
-    return url.href;
+    if (
+      host === "localhost" ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal") ||
+      host.endsWith(".arpa") ||
+      host.indexOf(":") !== -1 ||
+      /^[0-9.]+$/.test(host)
+    ) return null;
+
+    return u.href;
   } catch (e) {
     return null;
   }
@@ -99,7 +78,8 @@ function safeUrl(raw, base) {
 
 function videoType(raw) {
   try {
-    var path = new URL(raw).pathname.toLowerCase();
+    var path = new URL(raw)
+      .pathname.toLowerCase();
 
     if (/\.m3u8$/.test(path)) return "HLS";
     if (/\.mp4$/.test(path)) return "MP4";
@@ -122,334 +102,163 @@ function decodeHtml(raw) {
     .replace(/\\u0026/gi, "&");
 }
 
-function uniqueUrls(urls) {
-  var out = [];
+function extractVideoUrls(html, base) {
+  var results = [];
   var seen = {};
 
-  for (var i = 0; i < urls.length; i++) {
-    var url = urls[i];
-
-    if (!url || seen[url]) continue;
-
-    seen[url] = true;
-    out.push(url);
-  }
-
-  return out;
-}
-
-/*
- * Wyłącznie jawne adresy w HTML:
- * <video src>
- * <source src>
- * Konfiguracje file/src/source/hls
- * JSON videoUrl / streamUrl
- */
-function extractFromHtml(html, base) {
-  if (typeof html !== "string") return [];
-
-  var patterns = [
+  var expressions = [
     /<source\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi,
     /<video\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi,
     /(?:file|source|src|hls|videoUrl|streamUrl)\s*:\s*["']([^"']+)["']/gi,
     /["'](?:file|source|src|hls|videoUrl|streamUrl)["']\s*:\s*["']([^"']+)["']/gi,
-    /https:\/\/[^\s"'<>\\]+\.(?:m3u8|mp4|m4v|webm|mpd)(?:\?[^\s"'<>\\]*)?/gi
+    /https:\/\/[^\s"'<>\\]+\.(?:m3u8|mp4|mpd|webm)(?:\?[^\s"'<>\\]*)?/gi
   ];
 
-  var results = [];
-
-  for (var p = 0; p < patterns.length; p++) {
-    var expression = patterns[p];
+  for (var i = 0; i < expressions.length; i++) {
     var match;
-    var iterations = 0;
+    var count = 0;
 
     while (
-      (match = expression.exec(html)) !== null &&
-      iterations < 80 &&
-      results.length < 20
+      (match = expressions[i].exec(html)) !== null &&
+      count < 60 &&
+      results.length < 12
     ) {
-      iterations++;
+      count++;
 
-      var candidate = match[1] || match[0];
-      candidate = decodeHtml(candidate);
+      var raw = decodeHtml(
+        match[1] || match[0]
+      );
 
-      var url = safeUrl(candidate, base);
+      var url = safeUrl(raw, base);
 
-      if (!url || !videoType(url)) continue;
+      if (
+        !url ||
+        !videoType(url) ||
+        seen[url]
+      ) continue;
 
+      seen[url] = true;
       results.push(url);
     }
   }
 
-  return uniqueUrls(results).slice(0, 12);
+  return results;
 }
 
-/*
- * Pobieranie z timeoutem.
- * Nie wykonujemy przekierowań automatycznie.
- */
-async function fetchWithTimeout(
-  url,
-  accept,
-  timeoutMs
-) {
-  var controller =
-    typeof AbortController !== "undefined"
-      ? new AbortController()
-      : null;
-
-  var timer = null;
-
-  var options = {
+function request(url, accept) {
+  return fetch(url, {
     method: "GET",
     redirect: "manual",
     headers: {
-      "Accept": accept
+      "Accept": accept || "*/*"
     }
-  };
-
-  if (controller) {
-    options.signal = controller.signal;
-
-    timer = setTimeout(function() {
-      controller.abort();
-    }, timeoutMs || TIMEOUT);
-  }
-
-  try {
-    return await fetch(url, options);
-  } finally {
-    if (timer !== null) clearTimeout(timer);
-  }
+  });
 }
 
-async function loadWorkerStreams(id) {
-  var endpoint =
-    WORKER +
-    "/stream/movie/" +
-    encodeURIComponent(id) +
-    ".json";
+function diagnosticRow(number, message) {
+  var text = String(message).slice(0, 140);
 
-  log("WORKER: " + endpoint);
-
-  var response = await fetchWithTimeout(
-    endpoint,
-    "application/json",
-    TIMEOUT
-  );
-
-  log("WORKER HTTP: " + response.status);
-
-  if (!response.ok) {
-    throw new Error(
-      "Worker HTTP " + response.status
-    );
-  }
-
-  var data = await response.json();
-
-  if (!data || !Array.isArray(data.streams)) {
-    throw new Error(
-      "Worker nie zwrocil tablicy streams"
-    );
-  }
-
-  log("WORKER SOURCES: " + data.streams.length);
-
-  return data.streams;
-}
-
-function findVideoUrls(streams) {
-  var direct = [];
-  var pages = [];
-  var seenDirect = {};
-  var seenPages = {};
-
-  for (var i = 0; i < streams.length; i++) {
-    var stream = streams[i];
-
-    if (!stream) continue;
-
-    var label = String(
-      stream.title || stream.name || "Video"
-    ).slice(0, 100);
-
-    var directUrl = safeUrl(stream.url);
-
-    if (
-      directUrl &&
-      videoType(directUrl) &&
-      !seenDirect[directUrl]
-    ) {
-      seenDirect[directUrl] = true;
-
-      direct.push({
-        url: directUrl,
-        label: label,
-        type: videoType(directUrl)
-      });
-    }
-
-    var externalUrl = safeUrl(
-      stream.externalUrl
-    );
-
-    if (
-      externalUrl &&
-      !videoType(externalUrl) &&
-      !seenPages[externalUrl]
-    ) {
-      seenPages[externalUrl] = true;
-
-      pages.push({
-        url: externalUrl,
-        label: label
-      });
-    }
-  }
+  log("STEP " + number + ": " + text);
 
   return {
-    direct: direct,
-    pages: pages
+    name: "DEBUG " + number + " - NIE ODTWARZAC",
+    title: text,
+    quality: "DEBUG",
+    // Celowo JSON, a nie plik wideo.
+    url: WORKER + "/health?diagnostic=" + number
   };
 }
 
-async function resolveHtmlPage(page) {
-  var diagnostic = {
-    url: page.url,
-    label: page.label,
-    status: "unknown",
-    count: 0
-  };
-
-  try {
-    log("HTML CHECK: " + page.url);
-
-    var response = await fetchWithTimeout(
-      page.url,
-      "text/html",
-      TIMEOUT
-    );
-
-    diagnostic.status =
-      "HTTP " + response.status;
-
-    log(
-      "HTML RESPONSE: " +
-      response.status +
-      " " + page.label
-    );
-
-    if (!response.ok) {
-      return {
-        urls: [],
-        diagnostic: diagnostic
-      };
-    }
-
-    var contentType = String(
-      response.headers.get("content-type") || ""
-    ).toLowerCase();
-
-    if (
-      contentType &&
-      contentType.indexOf("html") === -1 &&
-      contentType.indexOf("text/plain") === -1
-    ) {
-      diagnostic.status = "not_html";
-
-      return {
-        urls: [],
-        diagnostic: diagnostic
-      };
-    }
-
-    var size = Number(
-      response.headers.get("content-length") || 0
-    );
-
-    if (size > MAX_HTML) {
-      diagnostic.status = "html_too_large";
-
-      return {
-        urls: [],
-        diagnostic: diagnostic
-      };
-    }
-
-    var html = await response.text();
-
-    if (html.length > MAX_HTML) {
-      diagnostic.status = "html_too_large";
-
-      return {
-        urls: [],
-        diagnostic: diagnostic
-      };
-    }
-
-    if (
-      /cf-chl-|just a moment|sprawdzamy połączenie|sorry, you have been blocked|direct access is prohibited|access denied/i
-        .test(html)
-    ) {
-      diagnostic.status = "access_blocked";
-
-      log("BLOCKED: " + page.label);
-
-      return {
-        urls: [],
-        diagnostic: diagnostic
-      };
-    }
-
-    var urls = extractFromHtml(
-      html,
-      page.url
-    );
-
-    diagnostic.count = urls.length;
-    diagnostic.status =
-      urls.length > 0
-        ? "video_candidates"
-        : "html_no_video";
-
-    log(
-      "HTML RESULT: " +
-      diagnostic.status +
-      " candidates=" + urls.length
-    );
-
-    return {
-      urls: urls,
-      diagnostic: diagnostic
-    };
-  } catch (error) {
-    diagnostic.status =
-      "fetch_error: " + errorText(error);
-
-    log("HTML ERROR: " + diagnostic.status);
-
-    return {
-      urls: [],
-      diagnostic: diagnostic
-    };
-  }
-}
-
-function makeStream(url, label, type) {
+function videoRow(url, label) {
   return {
-    name: "Strumyk Native " + type,
-    title: label + " · " + type,
+    name: "Strumyk Native " +
+      (videoType(url) || "Video"),
+    title: String(label).slice(0, 90),
     quality: "Auto",
     url: url
   };
 }
 
-/*
- * Główna funkcja natywnego providera.
- * Nuvio przekazuje ID katalogu strumyk:...
- */
-async function getStreams(
+function readExternalPage(address) {
+  return request(address, "text/html")
+    .then(function(response) {
+      var code = response.status;
+
+      if (!response.ok) {
+        return {
+          status: "HTTP " + code,
+          urls: []
+        };
+      }
+
+      var ct = String(
+        response.headers.get("content-type") || ""
+      ).toLowerCase();
+
+      if (
+        ct &&
+        ct.indexOf("html") === -1 &&
+        ct.indexOf("text/plain") === -1
+      ) {
+        return {
+          status: "Nie-HTML (" +
+            ct.slice(0, 35) + ")",
+          urls: []
+        };
+      }
+
+      var length = Number(
+        response.headers.get("content-length") || 0
+      );
+
+      if (length > MAX_HTML) {
+        return {
+          status: "HTML za duzy",
+          urls: []
+        };
+      }
+
+      return response.text()
+        .then(function(html) {
+          if (html.length > MAX_HTML) {
+            return {
+              status: "HTML za duzy",
+              urls: []
+            };
+          }
+
+          if (
+            /cf-chl-|just a moment|sprawdzamy połączenie|sorry, you have been blocked|direct access is prohibited|access denied/i
+              .test(html)
+          ) {
+            return {
+              status: "Blokada strony / weryfikacja",
+              urls: []
+            };
+          }
+
+          var urls = extractVideoUrls(
+            html,
+            address
+          );
+
+          return {
+            status:
+              "HTTP " + code +
+              ", jawne video: " + urls.length,
+            urls: urls
+          };
+        });
+    })
+    .catch(function(e) {
+      return {
+        status: "Blad fetch: " + errText(e),
+        urls: []
+      };
+    });
+}
+
+function getStreams(
   tmdbId,
   mediaType,
   season,
@@ -465,103 +274,213 @@ async function getStreams(
   );
 
   if (mediaType !== "movie") {
-    return [];
+    return Promise.resolve([]);
   }
 
-  /*
-   * Zachowujemy sprawdzony test HLS.
-   */
   if (id === "strumyk:test-hls") {
-    log("TEST HLS SUCCESS");
-
-    return [{
-      name: "Strumyk Native TEST",
-      title: "Big Buck Bunny · HLS 1080p",
-      quality: "1080p",
-      url: TEST_HLS
-    }];
+    return Promise.resolve([
+      {
+        name: "Strumyk Native TEST",
+        title: "Big Buck Bunny - publiczny HLS",
+        quality: "1080p",
+        url: TEST_HLS
+      },
+      diagnosticRow(
+        1,
+        "OK: getStreams uruchomione dla test HLS"
+      )
+    ]);
   }
 
   if (
     !/^strumyk:[A-Za-z0-9_-]{1,80}$/.test(id)
   ) {
-    log("SKIP: not a Strumyk event");
-    return [];
+    return Promise.resolve([]);
   }
 
-  try {
-    var sources = await loadWorkerStreams(id);
-    var found = findVideoUrls(sources);
+  var debug = [];
 
-    log(
-      "DIRECT=" + found.direct.length +
-      " HTML=" + found.pages.length
-    );
+  debug.push(
+    diagnosticRow(
+      1,
+      "OK getStreams | ID: " + id
+    )
+  );
 
-    var output = [];
-    var seen = {};
+  var endpoint =
+    WORKER + "/stream/movie/" +
+    encodeURIComponent(id) + ".json";
 
-    for (var i = 0; i < found.direct.length; i++) {
-      var item = found.direct[i];
-
-      if (seen[item.url]) continue;
-
-      seen[item.url] = true;
-
-      output.push(
-        makeStream(
-          item.url,
-          item.label,
-          item.type
+  return request(
+    endpoint,
+    "application/json"
+  )
+    .then(function(response) {
+      debug.push(
+        diagnosticRow(
+          2,
+          "Worker HTTP " + response.status
         )
       );
-    }
 
-    /*
-     * Skanujemy maksymalnie 4 jawnie
-     * dostępne strony odtwarzaczy.
-     */
-    var pages = found.pages.slice(
-      0,
-      MAX_PAGES
-    );
+      if (!response.ok) {
+        return {
+          error:
+            "Worker zwrocil HTTP " +
+            response.status
+        };
+      }
 
-    for (var p = 0; p < pages.length; p++) {
-      var result = await resolveHtmlPage(
-        pages[p]
+      return response.json();
+    })
+    .then(function(data) {
+      if (data.error) {
+        debug.push(
+          diagnosticRow(
+            3,
+            "Blad API: " + data.error
+          )
+        );
+
+        return debug;
+      }
+
+      var rows = Array.isArray(data.streams)
+        ? data.streams
+        : [];
+
+      var direct = [];
+      var pages = [];
+      var seen = {};
+
+      for (var i = 0; i < rows.length; i++) {
+        var item = rows[i];
+
+        if (!item) continue;
+
+        var label = String(
+          item.title || item.name || "Zrodlo"
+        );
+
+        var directUrl = safeUrl(item.url);
+        var webUrl = safeUrl(item.externalUrl);
+
+        if (
+          directUrl &&
+          videoType(directUrl) &&
+          !seen[directUrl]
+        ) {
+          seen[directUrl] = true;
+
+          direct.push({
+            url: directUrl,
+            label: label
+          });
+        }
+
+        if (
+          webUrl &&
+          !videoType(webUrl) &&
+          !seen[webUrl]
+        ) {
+          seen[webUrl] = true;
+
+          pages.push({
+            url: webUrl,
+            label: label
+          });
+        }
+      }
+
+      debug.push(
+        diagnosticRow(
+          3,
+          "Zrodla z Workera: " + rows.length +
+          " | Video: " + direct.length +
+          " | WWW: " + pages.length
+        )
       );
 
-      for (var j = 0; j < result.urls.length; j++) {
-        var url = result.urls[j];
+      var videos = [];
+      var videoSeen = {};
 
-        if (seen[url]) continue;
+      for (var d = 0; d < direct.length; d++) {
+        videoSeen[direct[d].url] = true;
 
-        seen[url] = true;
-
-        output.push(
-          makeStream(
-            url,
-            pages[p].label,
-            videoType(url) || "Video"
+        videos.push(
+          videoRow(
+            direct[d].url,
+            direct[d].label
           )
         );
       }
-    }
 
-    log(
-      "FINISH streams=" + output.length
-    );
+      function scanNext(index) {
+        if (
+          index >= pages.length ||
+          index >= MAX_PAGES
+        ) {
+          debug.push(
+            diagnosticRow(
+              9,
+              "KONIEC: " +
+              videos.length +
+              " kandydatow video. " +
+              (videos.length
+                ? "Sprawdz odtwarzanie."
+                : "Brak natywnego zrodla.")
+            )
+          );
 
-    /*
-     * Nie dodajemy fikcyjnych źródeł.
-     * Jeżeli nie ma jawnego HLS/MP4,
-     * zwracamy pustą listę.
-     */
-    return output.slice(0, 30);
-  } catch (error) {
-    log("FAILED: " + errorText(error));
-    return [];
-  }
+          return Promise.resolve(
+            videos.concat(debug)
+          );
+        }
+
+        var page = pages[index];
+
+        return readExternalPage(page.url)
+          .then(function(result) {
+            debug.push(
+              diagnosticRow(
+                4 + index,
+                "WWW " + (index + 1) +
+                ": " + result.status
+              )
+            );
+
+            for (
+              var j = 0;
+              j < result.urls.length;
+              j++
+            ) {
+              var url = result.urls[j];
+
+              if (videoSeen[url]) continue;
+
+              videoSeen[url] = true;
+
+              videos.push(
+                videoRow(url, page.label)
+              );
+            }
+
+            return scanNext(index + 1);
+          });
+      }
+
+      return scanNext(0);
+    })
+    .catch(function(e) {
+      debug.push(
+        diagnosticRow(
+          8,
+          "BLAD: " + errText(e)
+        )
+      );
+
+      return debug;
+    });
 }
 
 module.exports = {
