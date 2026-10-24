@@ -1,20 +1,19 @@
 
 {
   "name": "Strumyk Native Bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "scrapers": [
     {
       "id": "strumyk-native-bridge",
-      "name": "Strumyk Native Resolver",
-      "description": "Natywny resolver HLS/MP4 dla katalogu Strumyk. Diagnostyka HTTP i HTML.",
-      "version": "0.2.0",
+      "name": "Strumyk Native DEBUG",
+      "description": "Diagnostyka HTTP i odtwarzaczy Strumyk bezposrednio w Nuvio. Wpisy DEBUG nie sa transmisjami.",
+      "version": "0.2.1",
       "author": "Strumyk Native",
       "filename": "providers/strumyk.js",
       "supportedTypes": ["movie"],
       "enabled": true,
       "formats": ["m3u8", "mp4", "mpd", "webm"],
-      "contentLanguage": ["pl", "en"],
-      "supportsExternalPlayer": true
+      "contentLanguage": ["pl", "en"]
     }
   ]
 }
