@@ -1,0 +1,27 @@
+
+{
+  "name": "Strumyk Native Bridge - TEST",
+  "version": "0.1.0",
+  "scrapers": [
+    {
+      "id": "strumyk-native-bridge",
+      "name": "Strumyk Native Bridge TEST",
+      "description": "Test polaczenia natywnego providera Nuvio z katalogiem Strumyk",
+      "version": "0.1.0",
+      "author": "Strumyk community test",
+      "filename": "providers/strumyk.js",
+      "supportedTypes": [
+        "movie"
+      ],
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "contentLanguage": [
+        "pl",
+        "en"
+      ]
+    }
+  ]
+}
