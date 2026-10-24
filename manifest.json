@@ -1,13 +1,13 @@
 
 {
   "name": "Strumyk Native Bridge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "scrapers": [
     {
       "id": "strumyk-native-bridge",
-      "name": "Strumyk Native DEBUG",
-      "description": "Diagnostyka HTTP i odtwarzaczy Strumyk bezposrednio w Nuvio. Wpisy DEBUG nie sa transmisjami.",
-      "version": "0.2.1",
+      "name": "Strumyk Native DEBUG 0.2.2",
+      "description": "Diagnostyka widoczna w nazwach źródeł Nuvio.",
+      "version": "0.2.2",
       "author": "Strumyk Native",
       "filename": "providers/strumyk.js",
       "supportedTypes": ["movie"],
